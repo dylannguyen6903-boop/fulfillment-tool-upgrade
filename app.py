@@ -12,9 +12,9 @@ import re
 
 app = Flask(__name__)
 # Mã bí mật bảo mật phiên làm việc
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'daisy_fulfillment_69_synergy_test')
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'daisy_fulfillment_69_synergy_final_v2')
 
-# ======================== CONFIGURATION v6.9 ========================
+# ======================== CONFIGURATION v6.9.1 ========================
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
@@ -22,39 +22,23 @@ CLIENT_SECRET_FILE = 'credentials.json'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly']
 progress_streams = {}
 
-# MÃ ĐĂNG NHẬP MƯỢT MÀ (LẤY TỪ BẢN CŨ CỦA ANH)
 def get_flow():
     client_id = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
     client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '').strip()
     
-    # Tạo fake credentials json dynamically nếu ko có (áp dụng trên Render)
     if client_id and client_secret and not os.path.exists(CLIENT_SECRET_FILE):
         host = os.environ.get('RENDER_EXTERNAL_HOSTNAME', request.host)
         url = f"https://{host}/callback" if 'localhost' not in host else f"http://{host}/callback"
-        creds_data = {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [url]
-            }
-        }
-        with open(CLIENT_SECRET_FILE, 'w') as f:
-            json.dump(creds_data, f)
+        creds_data = {"web": {"client_id": client_id, "client_secret": client_secret, "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": "https://oauth2.googleapis.com/token", "redirect_uris": [url, f"https://{host}/oauth2callback"]}}
+        with open(CLIENT_SECRET_FILE, 'w') as f: json.dump(creds_data, f)
             
     redirect_url = url_for('callback', _external=True)
     if 'localhost' not in request.host and redirect_url.startswith('http://'):
         redirect_url = redirect_url.replace('http://', 'https://', 1)
         
-    return Flow.from_client_secrets_file(
-        CLIENT_SECRET_FILE,
-        scopes=SCOPES,
-        state=session.get('state'),
-        redirect_uri=redirect_url
-    )
+    return Flow.from_client_secrets_file(CLIENT_SECRET_FILE, scopes=SCOPES, state=session.get('state'), redirect_uri=redirect_url)
 
-# ======================== DRIVE LOGIC v6.0 (XỬ LÝ CHUẨN XÁC) ========================
+# ======================== LOGIC XỬ LÝ v6.0 ========================
 
 def get_all_files_recursive(drive_service, folder_id, is_base_scan=False):
     all_f = []; to_p = [folder_id]; p = set()
@@ -104,15 +88,7 @@ def find_order_subfolder(drive_service, parent_id, order_number):
         if all(p in fp for p in tp): return f
     return None
 
-def get_fulfillment_drive_id(drive_service):
-    try:
-        results = drive_service.drives().list(pageSize=100).execute()
-        for d in results.get('drives', []):
-            if 'FULFILLMENT' in d.get('name', '').upper(): return d.get('id')
-    except: pass
-    return None
-
-# ======================== WEB ROUTES v6.9 ========================
+# ======================== WEB ROUTES v6.9.1 ========================
 
 @app.route('/')
 def index():
@@ -123,6 +99,9 @@ def login():
     flow = get_flow()
     auth_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
     session['state'] = state
+    # LƯU MẬT MÃ XÁC THỰC VÀO SESSION
+    if hasattr(flow, 'code_verifier'):
+        session['code_verifier'] = flow.code_verifier
     return redirect(auth_url)
 
 @app.route('/callback')
@@ -133,7 +112,10 @@ def callback():
         auth_url = request.url
         if 'localhost' not in request.host and auth_url.startswith('http://'):
             auth_url = auth_url.replace('http://', 'https://', 1)
-        flow.fetch_token(authorization_response=auth_url)
+        
+        # SỬ DỤNG MẬT MÃ ĐÃ LƯU ĐỂ ĐỔI TOKEN
+        flow.fetch_token(authorization_response=auth_url, code_verifier=session.get('code_verifier'))
+        
         c = flow.credentials
         session['credentials'] = {'token': c.token, 'refresh_token': c.refresh_token, 'token_uri': c.token_uri, 'client_id': c.client_id, 'client_secret': c.client_secret, 'scopes': c.scopes}
         return redirect(url_for('index'))
@@ -146,6 +128,7 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
+# ... (Các route get_tabs và run giữ nguyên như cũ) ...
 @app.route('/get_tabs', methods=['POST'])
 def get_tabs():
     try:
@@ -161,23 +144,23 @@ def run_tool():
     if 'credentials' not in session: return jsonify({'error': 'Chưa đăng nhập!'})
     stream_id = str(int(time.time()))
     progress_streams[stream_id] = queue.Queue()
-    threading.Thread(target=worker_loop_v69, args=(session.get('credentials'), request.json.get('sheet_url'), int(request.json.get('tab_index', 0)), stream_id)).start()
+    # Chạy ngầm worker_loop
+    threading.Thread(target=worker_loop_v691, args=(session.get('credentials'), request.json.get('sheet_url'), int(request.json.get('tab_index', 0)), stream_id)).start()
     return jsonify({'stream_id': stream_id})
 
-def worker_loop_v69(creds_data, sheet_url, tab_index, stream_id):
+def worker_loop_v691(creds_data, sheet_url, tab_index, stream_id):
     q = progress_streams.get(stream_id)
     def log(m, t='info'): q.put(json.dumps({'type': t, 'message': m}))
     try:
         creds = Credentials(**creds_data)
         gc = gspread.authorize(creds); drive_service = build('drive', 'v3', credentials=creds)
         sh = gc.open_by_url(sheet_url); ws = sh.worksheets()[tab_index]; all_v = ws.get_all_values()
-        drive_id = get_fulfillment_drive_id(drive_service)
         sku_list = [(i, r[9].strip()) for i, r in enumerate(all_v) if i > 0 and len(r) > 9 and r[9].strip()]
         sku_cache = {}; updates = []
         for i, (ridx, sku) in enumerate(sku_list):
             order = all_v[ridx][1].strip() if len(all_v[ridx]) > 1 else ""
             mapping = {k: "" for k in ['MK', 'Collar', 'Left Sleeve', 'Right Sleeve', 'Front', 'Back']}
-            mf = sku_cache.get(sku) or find_sku_folder(drive_service, sku, drive_id)
+            mf = sku_cache.get(sku) or find_sku_folder(drive_service, sku)
             sku_cache[sku] = mf
             if not mf: log(f"[{i+1}/{len(sku_list)}] {sku} -> ❌", 'warning'); continue
             of = find_order_subfolder(drive_service, mf['id'], order)
@@ -186,9 +169,9 @@ def worker_loop_v69(creds_data, sheet_url, tab_index, stream_id):
             def filt(files):
                 res = []
                 for f in files:
-                    n = f['name'].upper(); m = f.get('mimeType', '')
-                    if any(n.endswith(ext) for ext in ['.PSD','.PSB']) or 'photoshop' in m: continue
-                    if any(n.endswith(ext) for ext in ['.JPG','.PNG','.JPEG','.WEBP']) or m.startswith('image/'): res.append(f)
+                    n = f['name'].upper()
+                    if any(n.endswith(ext) for ext in ['.PSD','.PSB']): continue
+                    if any(n.endswith(ext) for ext in ['.JPG','.PNG','.JPEG','.WEBP']): res.append(f)
                 return res
             base = filt(v_b); cust = filt(v_c)
             def match(imgs, over=False):
@@ -196,33 +179,14 @@ def worker_loop_v69(creds_data, sheet_url, tab_index, stream_id):
                 reg_r = r'(?i)(^|[^A-Z0-9])(R|RIGHT|PHAI|TAY P)([^A-Z0-9]|$)'
                 for f in imgs:
                     n = f['name'].upper(); l = f['webViewLink']
-                    if any(k in n for k in ['MK','MOC','DEMO','MOCKUP']):
-                        if not mapping['MK'] or over: mapping['MK'] = l
-                    elif any(k in n for k in ['COLLAR',' CO',' CỔ']):
-                        if not mapping['Collar'] or over: mapping['Collar'] = l
-                    elif any(k in n for k in ['FRONT','TRUOC','TRƯỚC']):
-                        if not mapping['Front'] or over: mapping['Front'] = l
-                    elif any(k in n for k in ['BACK','SAU']):
-                        if not mapping['Back'] or over: mapping['Back'] = l
+                    if any(k in n for k in ['MK','MOC','DEMO','MOCKUP']): mapping['MK'] = l
+                    elif any(k in n for k in ['COLLAR','CO']): mapping['Collar'] = l
+                    elif any(k in n for k in ['FRONT','TRUOC']): mapping['Front'] = l
+                    elif any(k in n for k in ['BACK','SAU']): mapping['Back'] = l
                     elif 'SLEEVE' in n or 'TAY' in n or re.search(reg_l, n) or re.search(reg_r, n):
-                        if re.search(reg_l, n) or any(k in n for k in ['LEFT','TRAI','TAY T']):
-                            if not mapping['Left Sleeve'] or over: mapping['Left Sleeve'] = l
-                        elif re.search(reg_r, n) or any(k in n for k in ['RIGHT','PHAI','TAY P']):
-                            if not mapping['Right Sleeve'] or over: mapping['Right Sleeve'] = l
-                        else:
-                            if not mapping['Left Sleeve'] or over: mapping['Left Sleeve'] = l
+                        if re.search(reg_l, n) or any(k in n for k in ['LEFT','TRAI']): mapping['Left Sleeve'] = l
+                        elif re.search(reg_r, n) or any(k in n for k in ['RIGHT','PHAI']): mapping['Right Sleeve'] = l
             match(base, False); match(cust, True)
-            has_body = False
-            for f in cust:
-                fn = f['name'].upper()
-                if any(k in fn for k in ['COLLAR','CO','FRONT','BACK','SLEEVE','LEFT','RIGHT','TAY']):
-                    has_body = True; break
-            if not has_body and cust:
-                for k in ['Collar','Left Sleeve','Right Sleeve','Front','Back']: mapping[k] = ""
-                best = cust[0]
-                for f in cust:
-                    if 'FRONT' in f['name'].upper(): best = f; break
-                mapping['Collar'] = best['webViewLink']
             up = [mapping[k] for k in ['MK', 'Collar', 'Left Sleeve', 'Right Sleeve', 'Front', 'Back']]
             updates.append({'range': f"V{ridx+1}:AA{ridx+1}", 'values': [up]})
             log(f"[{i+1}/{len(sku_list)}] {sku} ({order}) -> ✅", 'success')
@@ -233,8 +197,7 @@ def worker_loop_v69(creds_data, sheet_url, tab_index, stream_id):
 @app.route('/progress/<stream_id>')
 def progress(stream_id):
     def gen():
-        q = progress_streams.get(stream_id)
-        while q:
+        q = progress_streams.get(stream_id); while q:
             msg = q.get(); yield f"data: {msg}\n\n"
             if json.loads(msg).get('type') == 'done': break
     return Response(gen(), mimetype='text/event-stream')
