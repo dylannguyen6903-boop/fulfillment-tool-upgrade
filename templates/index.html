@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daisy Tool v6.9 SYNERGY</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root { --primary: #00f2fe; --secondary: #4facfe; --bg: #0f172a; --card-bg: rgba(30, 41, 59, 0.7); --text: #f8fafc; }
+        body { font-family: 'Outfit', sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { width: 100%; max-width: 650px; padding: 2rem; }
+        .glass-card { background: var(--card-bg); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; padding: 2.5rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+        h1 { font-weight: 600; margin-bottom: 0.5rem; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
+        .subtitle { text-align: center; color: #94a3b8; margin-bottom: 2rem; font-size: 0.9rem; }
+        .status-box { background: rgba(15, 23, 42, 0.5); border-radius: 12px; padding: 1rem; margin-bottom: 2rem; border: 1px solid #334155; text-align: center; }
+        .status-connected { color: #4ade80; font-weight: 600; }
+        .status-disconnected { color: #f87171; font-weight: 600; }
+        input[type="text"], select { width: 100%; padding: 12px 16px; background: rgba(15, 23, 42, 0.5); border: 1px solid #334155; border-radius: 12px; color: white; margin-bottom: 1.5rem; box-sizing: border-box; outline: none; transition: border-color 0.3s; }
+        input[type="text"]:focus { border-color: var(--primary); }
+        button { width: 100%; padding: 14px; border: none; border-radius: 12px; font-weight: 600; cursor: pointer; transition: 0.3s; display: flex; justify-content: center; align-items: center; gap: 10px; }
+        .btn-primary { background: linear-gradient(135deg, var(--secondary) 0%, var(--primary) 100%); color: #0f172a; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 20px -5px rgba(34,211,238,0.4); }
+        .btn-logout { background: transparent; color: #94a3b8; border: 1px solid #334155; margin-top: 1rem; }
+        #log-area { background: rgba(15,23,42,0.8); border-radius: 12px; padding: 1rem; max-height: 250px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #94a3b8; margin-top: 1.5rem; border: 1px solid #334155; display: none; }
+        .log-success { color: #4ade80; } .log-warning { color: #fbbf24; } .log-error { color: #f87171; }
+        .footer { text-align: center; margin-top: 2rem; font-size: 0.75rem; color: #475569; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="glass-card">
+            <h1>Daisy Synergy v6.9</h1>
+            <p class="subtitle">Đồng bộ Tuyệt đối - Bản Test Domain Mới</p>
+
+            <div class="status-box">
+                Trạng thái: {% if authenticated %}<span class="status-connected">🟢 ĐÃ KẾT NỐI GOOGLE</span>{% else %}<span class="status-disconnected">🔴 CHƯA ĐĂNG NHẬP</span>{% endif %}
+            </div>
+
+            {% if not authenticated %}
+            <div style="text-align: center;">
+                <p style="margin-bottom: 2rem; color: #94a3b8;">Hệ thống sẽ lấy thông tin từ Biến môi trường Render của anh.</p>
+                <a href="/login"><button class="btn-primary">🔐 Đăng nhập bằng Google</button></a>
+            </div>
+            {% else %}
+            <div id="form-body">
+                <input type="text" id="sheet_url" placeholder="Dán link Google Sheet tại đây...">
+                <div id="tab-box" style="display:none; transition: 0.3s;">
+                    <label style="display:block; margin-bottom: 0.5rem; color: #94a3b8; font-size: 0.85rem;">Chọn Tab xử lý:</label>
+                    <select id="tab_index"></select>
+                </div>
+                <button id="btn-main" class="btn-primary" onclick="handle()">Tiếp tục (Lấy Tab)</button>
+                <div id="log-area"></div>
+                <a href="/logout"><button class="btn-logout">Đăng xuất</button></a>
+            </div>
+            {% endif %}
+            <div class="footer">SYNERGY DEPLOYMENT • VERSION 6.9</div>
+        </div>
+    </div>
+    <script>
+        let step = 'tabs';
+        async function handle() {
+            const url = document.getElementById('sheet_url').value;
+            if(!url) return alert('Dán link Sheet!');
+            const btn = document.getElementById('btn-main'); btn.disabled = true;
+            if(step==='tabs'){
+                const r = await fetch('/get_tabs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet_url:url})});
+                const d = await r.json();
+                if(d.error) { btn.disabled=false; return alert(d.error); }
+                const s = document.getElementById('tab_index'); s.innerHTML='';
+                d.tabs.forEach(t=>{const o=document.createElement('option'); o.value=t.index; o.textContent=t.title; s.appendChild(o);});
+                document.getElementById('tab-box').style.display='block';
+                btn.textContent='🚀 Bắt đầu Chạy'; step='run'; btn.disabled=false;
+            } else {
+                const idx = document.getElementById('tab_index').value;
+                const r = await fetch('/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet_url:url,tab_index:idx})});
+                const d = await r.json();
+                if(d.error) { btn.disabled=false; return alert(d.error); }
+                start(d.stream_id);
+            }
+        }
+        function start(id){
+            const log = document.getElementById('log-area'); log.style.display='block';
+            const es = new EventSource('/progress/'+id);
+            es.onmessage = e => {
+                const d = JSON.parse(e.data);
+                if(d.type==='done'){ es.close(); document.getElementById('btn-main').disabled=false; return; }
+                const v = document.createElement('div'); v.className='log-'+d.type; v.textContent='> '+d.message;
+                log.appendChild(v); log.scrollTop=log.scrollHeight;
+            };
+        }
+    </script>
+</body>
+</html>
