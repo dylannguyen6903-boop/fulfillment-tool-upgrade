@@ -12,9 +12,9 @@ import re
 
 app = Flask(__name__)
 # Mã bí mật bảo mật phiên làm việc
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'daisy_synergy_final_v692_stable_v2')
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'daisy_synergy_final_v693_ultraspeed')
 
-# ======================== CẤU HÌNH GOOGLE OAUTH v6.9.2 ========================
+# ======================== CẤU HÌNH GOOGLE OAUTH v6.9.3 ========================
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
@@ -119,7 +119,7 @@ def get_fulfillment_drive_id(drive_service):
         pass
     return None
 
-# ======================== WEB ROUTES v6.9.2 ========================
+# ======================== WEB ROUTES v6.9.3 ========================
 
 @app.route('/')
 def index():
@@ -170,10 +170,10 @@ def run_tool():
     if 'credentials' not in session: return jsonify({'error': 'Chưa đăng nhập!'})
     stream_id = str(int(time.time()))
     progress_streams[stream_id] = queue.Queue()
-    threading.Thread(target=worker_loop_final, args=(session.get('credentials'), request.json.get('sheet_url'), int(request.json.get('tab_index', 0)), stream_id)).start()
+    threading.Thread(target=worker_loop_v693, args=(session.get('credentials'), request.json.get('sheet_url'), int(request.json.get('tab_index', 0)), stream_id)).start()
     return jsonify({'stream_id': stream_id})
 
-def worker_loop_final(creds_data, sheet_url, tab_index, stream_id):
+def worker_loop_v693(creds_data, sheet_url, tab_index, stream_id):
     q = progress_streams.get(stream_id)
     def log(m, t='info'): q.put(json.dumps({'type': t, 'message': m}))
     try:
@@ -185,20 +185,35 @@ def worker_loop_final(creds_data, sheet_url, tab_index, stream_id):
         all_v = ws.get_all_values()
         drive_id = get_fulfillment_drive_id(drive_service)
         sku_list = [(i, r[9].strip()) for i, r in enumerate(all_v) if i > 0 and len(r) > 9 and r[9].strip()]
-        sku_cache = {}
+        
+        sku_folder_cache = {}
+        sku_files_cache = {} # BỘ NHỚ ĐỆM CHO DANH SÁCH FILE SKU
         updates = []
         
         for i, (ridx, sku) in enumerate(sku_list):
             order = all_v[ridx][1].strip() if len(all_v[ridx]) > 1 else ""
             mapping = {k: "" for k in ['MK', 'Collar', 'Left Sleeve', 'Right Sleeve', 'Front', 'Back']}
-            mf = sku_cache.get(sku) or find_sku_folder(drive_service, sku, drive_id)
-            sku_cache[sku] = mf
+            
+            # TÌM THƯ MỤC SKU
+            mf = sku_folder_cache.get(sku) or find_sku_folder(drive_service, sku, drive_id)
+            sku_folder_cache[sku] = mf
+            
             if not mf:
-                log(f"[{i+1}/{len(sku_list)}] {sku} -> ❌", 'warning')
+                log(f"[{i+1}/{len(sku_list)}] {sku} -> ❌ KHÔNG TẤY THƯ MỤC SKU", 'warning')
                 continue
             
+            # QUÉT DANH SÁCH FILE MẪU (DÙNG BỘ NHỚ ĐỆM NẾU CÓ)
+            if sku in sku_files_cache:
+                v_b = sku_files_cache[sku]
+                is_cached = True
+            else:
+                log(f"[{i+1}/{len(sku_list)}] Đang quét thư mục SKU: {sku}...", 'info')
+                v_b = get_all_files_recursive(drive_service, mf['id'], is_base_scan=True)
+                sku_files_cache[sku] = v_b
+                is_cached = False
+            
+            # QUÉT FILE RIÊNG CỦA ORDER
             of = find_order_subfolder(drive_service, mf['id'], order)
-            v_b = get_all_files_recursive(drive_service, mf['id'], is_base_scan=True)
             v_c = get_all_files_recursive(drive_service, of['id'], is_base_scan=False) if of else []
             
             def filt(files):
@@ -238,14 +253,25 @@ def worker_loop_final(creds_data, sheet_url, tab_index, stream_id):
             
             up = [mapping[k] for k in ['MK', 'Collar', 'Left Sleeve', 'Right Sleeve', 'Front', 'Back']]
             updates.append({'range': f"V{ridx+1}:AA{ridx+1}", 'values': [up]})
-            log(f"[{i+1}/{len(sku_list)}] {sku} ({order}) -> ✅", 'success')
             
+            status_symbol = "✅ (Memory)" if is_cached else "✅"
+            log(f"[{i+1}/{len(sku_list)}] {sku} ({order}) -> {status_symbol}", 'success')
+            
+            # LƯU CUỐN CHIẾU MỖI 5 DÒNG
+            if len(updates) >= 5:
+                ws.batch_update(updates)
+                log(f"💾 Đã lưu tạm thời {len(updates)} dòng vào Google Sheets.", 'info')
+                updates = []
+            
+        # LƯU CÁC DÒNG CÒN LẠI CUỐI CÙNG
         if updates:
             ws.batch_update(updates)
-        log('✨ HOÀN THÀNH!', 'success')
+            log(f"💾 Hoàn tất lưu {len(updates)} dòng cuối cùng.", 'success')
+            
+        log('✨ TẤT CẢ ĐÃ HOÀN THÀNH!', 'success')
         log('DONE', 'done')
     except Exception as e:
-        log(f'❌ Lỗi: {e}', 'error')
+        log(f'❌ Lỗi hệ thống: {e}', 'error')
         log('DONE', 'done')
 
 @app.route('/progress/<stream_id>')
